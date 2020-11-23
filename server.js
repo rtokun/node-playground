@@ -1,10 +1,21 @@
 const express = require('express');
+const bcrypt = require("bcrypt-nodejs");
 const _ = require('lodash');
+const cors = require("cors");
 
 const app = express();
 
 app.use(express.urlencoded());
 app.use(express.json());
+app.use(cors());
+
+class LoginData {
+    constructor(id, hash, email) {
+        this.id = id;
+        this.hash = hash;
+        this.email = email;
+    }
+}
 
 const database = {
     users: [
@@ -12,7 +23,6 @@ const database = {
             id: '123',
             name: 'john',
             email: 'john@gmail.com',
-            password: 'cookies',
             entries: 0,
             joined: new Date()
         },
@@ -20,19 +30,19 @@ const database = {
             id: '124',
             name: 'sally',
             email: 'sally@gmail.com',
-            password: 'bananas',
             entries: 0,
             joined: new Date()
         }
     ],
-    login: [
-        {
-            id: "987",
-            hash: '',
-            email: 'john@gmail.com'
-        }
-    ]
+    login: []
 };
+
+hashPassword('John123')
+    .then((hash) => {
+        database.login.push(
+            new LoginData("123", hash, 'john@gmail.com')
+        );
+    });
 
 app.get('/', (req, res) => {
     res.json({
@@ -51,7 +61,7 @@ app.get('/profile/:id', (req, res) => {
     }
 });
 
-app.post('/image', (req, res) => {
+app.put('/image', (req, res) => {
     const {id} = req.body;
     const user = database.users.find(user => user.id === id);
     if (user === undefined) {
@@ -65,25 +75,36 @@ app.post('/image', (req, res) => {
     }
 });
 
-app.post('/signin', (req, res) => {
+app.post('/signin', async (req, res) => {
 
     const {email, password} = req.body;
 
-    const user = database.users.find(user => user.email === email);
-    if (user !== undefined) {
-        if (password === user.password) {
-            return res.json("Success");
-        } else {
+    const data = database.login.find(loginData => loginData.email === email);
+    if (data !== undefined) {
+
+        try {
+            const equal = await comparePasswords(password, data.hash);
+            if (equal) {
+                const user = database.users.find(user => user.id === data.id);
+                return res.json(user);
+            } else {
+                return res.status(401).json({
+                    error: "Wrong credentials"
+                });
+            }
+        } catch (e) {
             return res.status(401).json({
-                error: "Wrong credentials"
+                error: e
             });
         }
+
+
     } else return res.status(401).json({
         error: "Wrong credentials"
     });
 });
 
-app.post('/register', (req, res) => {
+app.post('/register', async (req, res) => {
 
     const {name, email, password} = req.body;
 
@@ -92,21 +113,28 @@ app.post('/register', (req, res) => {
             .json("Please specify all required parameters");
     }
 
+    const hashedPassword = await hashPassword(password);
+    const id = uuidv4();
+
     const user = {
-        id: uuidv4(),
+        id: id,
         name: name,
         email: email,
-        password: password,
         entries: 0,
         joined: new Date()
     };
 
+    const loginData = new LoginData(
+        id, hashedPassword, email
+    );
+
     database.users.push(user);
+    database.login.push(loginData);
 
     return res.json(user)
 });
 
-const port = 3000;
+const port = 4000;
 app.listen(port, () => {
     console.log(`app is running on port ${port}`)
 });
@@ -118,10 +146,22 @@ function uuidv4() {
     });
 }
 
-/*
+function hashPassword(password) {
 
+    return new Promise((resolve, reject) => {
+        bcrypt.hash(password, null, null, function (err, hash) {
+            if (err) reject(err);
+            resolve(hash)
+        });
+    })
+}
 
+function comparePasswords(password, hashed) {
 
---> /image --> POST = user
-
- */
+    return new Promise((resolve, reject) => {
+        bcrypt.compare(password, hashed, function (err, result) {
+            if (err) reject(err);
+            resolve(result)
+        });
+    })
+}
